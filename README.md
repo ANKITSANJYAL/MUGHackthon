@@ -1,0 +1,2 @@
+# MUGHackthon
+Hackathon
