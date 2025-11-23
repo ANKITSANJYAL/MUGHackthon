@@ -1,0 +1,121 @@
+Project Proposal: JIRA-Integrated Autonomous Engineer (JIAE)
+The JIAE is an end-to-end, human-in-the-loop agent, built on the Model Context Protocol (MCP), designed to slash Mean Time to Resolution (MTTR) for developer bug tickets.
+I. Core Technology Stack & Tool Matrix
+The entire system is orchestrated by the LastMile AI mcp-agent framework.
+Component/Tool
+	Purpose
+	LLM/API/Library
+	Sponsor Relevance
+	Orchestration Framework
+	The "Brain." Manages the complex multi-step workflow, tool calling, reflection loop, and state.
+	LastMile AI mcp-agent (The MCP)
+	LastMile AI: Core platform for building reliable, production-ready agents.
+	Primary LLM (Coder/Reasoning)
+	Code generation, complex reasoning, RAG query formulation, and commit message writing.
+	Claude 3.5 Sonnet or GPT-4o
+	Best balance of code performance, context window, and price.
+	Internal Knowledge (RAG)
+	Stores proprietary past fixes, architectural decisions, and config rules.
+	MongoDB Atlas Vector Search (pymongo library)
+	MongoDB: Source of high-value internal context.
+	External Knowledge (RAG)
+	Real-time web access for API changes, deprecations, and library release notes.
+	Tavily Search API (tavily-python library)
+	Tavily: Source of essential, up-to-date external facts.
+	Integration Layers
+	Handles external communications and code management.
+	jira (Python), PyGithub (or subprocess for git), Flask (for Webhook listener)
+	Demonstrates enterprise integration capability.
+	UI/Frontend
+	Serves the Human-in-the-Loop Approval Dashboard.
+	Streamlit (Fastest development cycle)
+	Focuses on clarity and rapid prototyping.
+	________________
+
+
+II. System Flowchart: The Autonomous Bug Fix Lifecycle
+The process is triggered by a Jira Webhook and is managed by the MCP Orchestrator.
+1. TRIGGER: Client creates Jira Ticket (Status: To Do).
+2. PREP: Flask Webhook Listener captures the event $\rightarrow$ MCP Orchestrator reads ticket details and updates Jira status to IN PROGRESS $\rightarrow$ GitHub Tool clones the repo and creates a new branch (fix/JIRA-XYZ).
+3. DIAGNOSIS (Hybrid RAG):
+   * Orchestrator sends ticket details to the RAG Tool.
+   * RAG Tool calls MongoDB Vector Search for past internal fixes.
+   * RAG Tool calls Tavily API for external dependency updates.
+   * Both results are combined and returned to the LLM.
+4. EXECUTION & REFLECTION:
+   * Coder LLM generates patch code based on the combined context.
+   * Code Execution Tool applies the patch and runs F$\to$P (bug fix) and P$\to$P (regression) tests.
+   * IF FAIL: The failure traceback is fed back to the Coder LLM for a retry (max 3 times).
+   * IF PASS: Proceeds to HITL.
+5. HUMAN-IN-THE-LOOP (HITL):
+   * MCP Orchestrator saves the successful fix and the full trace log to the MongoDB Audit Collection.
+   * Orchestrator updates Jira status to IN REVIEW $\rightarrow$ Posts a comment tagging the developer with a link to the Approval UI.
+6. FINALIZATION (DevOps):
+   * Developer clicks "Approve" in the UI.
+   * MCP Orchestrator calls the GitHub Tool to merge the branch to main $\rightarrow$ Updates Jira status to DONE $\rightarrow$ Posts a final "Resolved" comment.
+________________
+
+
+III. UI/UX Design for Transparency and Approval
+The UI must serve two critical purposes: showing the Agent's Reasoning and enabling the Developer's quick Approval.
+1. The Reasoning & Flow Trace (Developer Transparency)
+This is the initial view when the developer clicks the link from Jira.
+Section
+	Content
+	Visual Goal
+	Ticket Summary
+	JIRA-ID, Client Description, Current Status.
+	Quick confirmation of the task.
+	Agent Trace Log
+	Real-time, color-coded stream of consciousness. e.g., [BLUE] Planning: Need to verify port config $\rightarrow$ [ORANGE] MongoDB RAG: Found AD-204 dictating port 8081 $\rightarrow$ [RED] Tavily: Verified LibX v3.0 changed API key parameter.
+	Establish Trust. Prove the agent didn't guess; it reasoned using both internal and external facts.
+	Test Execution Report
+	Simple table: Fails on Master (Expected) $\rightarrow$ PASSES on Fix Branch (Success). P$\to$P Tests: All PASS.
+	Prove Efficacy. Clear signal that the fix works and didn't introduce regressions.
+	2. The Approval Dashboard (HITL Decision)
+This panel is the core decision point.
+* Code Diff Preview: A large, two-pane view showing the exact code change (Old $\leftrightarrow$ New). Highlighting line additions/deletions is mandatory.
+* Approval Zone:
+   * [🟢 APPROVE & MERGE (Saves ~4 Hours of Developer Time)]
+   * [🔴 REVERT & REASSIGN]
+   * Time Log Display: Shows the estimated time saved (e.g., "Agent time: 4 minutes. Estimated Human Time Saved: 3.5 Hours").
+________________
+
+
+IV. Cost Analysis & Hackathon Savings
+Given the project uses the most accessible tiers of each service, the operational cost for the hackathon is effectively zero or near-zero, positioning it as a highly scalable solution.
+Service
+	Plan/Tier
+	Estimated Hackathon Cost
+	Note
+	MongoDB Atlas
+	Free Tier (M0 Cluster)
+	$0
+	Free plan includes 512 MB storage, which is ample for 20 RAG documents.
+	Tavily API
+	Researcher Plan
+	$0
+	Includes 1,000 free API credits per month, more than enough for a demo.
+	Jira
+	Free Plan
+	$0
+	Free for up to 10 users, perfect for a two-person team + the agent account.
+	LLM (Claude/GPT-4o)
+	Pay-As-You-Go
+	<$5
+	Cost depends on model choice and number of tokens used, but will be minimal for a short demo.
+	LastMile AI
+	mcp-agent Open Source
+	$0
+	The framework is open-source and free to use.
+	Total Estimated Cost
+	
+
+	<$5 (Excl. LLM)
+	Extremely cost-efficient for a proof-of-concept.
+	________________
+
+
+V. Key Deliverable: The Business Value Proposition
+The final presentation pitch must emphasize the business value enabled by this technology:
+"The JIAE moves a consulting firm's bug resolution process from a reactive, high-cost manual pipeline to a proactive, verified, and automated service. By leveraging MongoDB RAG for proprietary knowledge and the LastMile MCP for reliable orchestration, we don't just fix bugs—we turn every past fix into reusable institutional wisdom, cutting the developer time spent on level 1 and 2 tickets by over 90%."

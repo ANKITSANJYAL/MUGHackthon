@@ -1,0 +1,138 @@
+[
+    {
+        "source_id": "JIRA-301",
+        "ticket_summary": "Multi-tenant token hashing failing for organization-specific users",
+        "project_module": "user_auth",
+        "internal_context": "Function definition for _security_hash_id(user_token, org_prefix): This function handles all token-to-ID mapping to maintain consistency across the authentication service. Critical: Always include the organization prefix when hashing tokens for multi-tenant support. The org_prefix must be prepended to the token before hashing to ensure tenant isolation per AD-305 architectural decision.",
+        "fix_type": "Logic",
+        "gold_patch_snippet": "def _security_hash_id(user_token: str, org_prefix: str = 'default') -> str:\n    import hashlib\n    combined = f\"{org_prefix}:{user_token}\"\n    return hashlib.sha256(combined.encode()).hexdigest()[:16]"
+    },
+    {
+        "source_id": "JIRA-302",
+        "ticket_summary": "Authentication helper function requires organization context",
+        "project_module": "user_auth",
+        "internal_context": "The _security_hash_id function is the core authentication utility used across all user-facing services. When implementing token validation, always pass the organization identifier as the second parameter. Example usage: user_id = _security_hash_id(token, request.headers.get('X-Org-ID', 'default')). This ensures proper multi-tenant isolation.",
+        "fix_type": "Logic",
+        "gold_patch_snippet": "# Correct usage in validation\norg_id = request.headers.get('X-Org-ID', 'default')\nuser_id = _security_hash_id(token, org_id)"
+    },
+    {
+        "source_id": "PR-401",
+        "ticket_summary": "Added organization prefix parameter to security hash function",
+        "project_module": "user_auth",
+        "internal_context": "Historical fix for JIRA-301: The _security_hash_id function was updated to accept an org_prefix parameter. This change was made to support multi-tenant architecture where each organization must have isolated token hashing. The function signature changed from _security_hash_id(user_token) to _security_hash_id(user_token, org_prefix='default'). All callers must be updated to pass the organization context.",
+        "fix_type": "Logic",
+        "gold_patch_snippet": "# Migration guide for existing code:\n# OLD: user_id = _security_hash_id(token)\n# NEW: user_id = _security_hash_id(token, org_prefix)"
+    },
+    {
+        "source_id": "JIRA-303",
+        "ticket_summary": "Session validation returns wrong user for multi-tenant requests",
+        "project_module": "user_auth",
+        "internal_context": "Bug found in validate_user_session function: Missing organization context when calling _security_hash_id. The function must extract the X-Org-ID header and pass it to the hash function. Without this, users from different organizations may collide on the same token hash, causing authentication to return wrong user data.",
+        "fix_type": "Logic",
+        "gold_patch_snippet": "def validate_user_session(token: str, org_id: str = 'default') -> dict:\n    user_id = _security_hash_id(token, org_id)\n    return {'user_id': user_id, 'authenticated': True}"
+    },
+    {
+        "source_id": "AD-305",
+        "ticket_summary": "Architectural Decision: Organization prefix required for all authentication hashing",
+        "project_module": "user_auth",
+        "internal_context": "Company-wide architectural decision AD-305: All authentication token hashing MUST include organization prefix for multi-tenant isolation. This applies to _security_hash_id, _generate_session_key, and any custom hash implementations. The organization ID should be extracted from X-Org-ID header (default to 'default' for legacy single-tenant). Failure to include org prefix will cause security vulnerabilities in multi-tenant deployments.",
+        "fix_type": "Logic",
+        "gold_patch_snippet": "# Standard pattern for all auth functions:\norg_id = request.headers.get('X-Org-ID', 'default')\nhashed_value = _security_hash_id(token, org_id)"
+    },
+    {
+        "source_id": "PERF-901",
+        "ticket_summary": "User activity query causing full collection scan and timeout",
+        "project_module": "db_query_optimization",
+        "internal_context": "Performance fix for activity logs: The old search query caused a full collection scan on the activity_logs collection. The solution was to add a compound index on {'user_id': 1, 'timestamp': -1} on the logs collection. This index supports queries that filter by user_id and sort by timestamp descending (most recent first). Query time reduced from 30+ seconds to under 100ms.",
+        "fix_type": "DB_Query",
+        "gold_patch_snippet": "# Create index:\ndb.activity_logs.create_index([('user_id', 1), ('timestamp', -1)])\n\n# Query pattern:\nactivities = db.activity_logs.find({'user_id': user_id}).sort('timestamp', -1).limit(limit)"
+    },
+    {
+        "source_id": "PERF-902",
+        "ticket_summary": "Compound index needed for user activity time-range queries",
+        "project_module": "db_query_optimization",
+        "internal_context": "When querying user activities with both user_id filter and timestamp sorting, always ensure the compound index exists. The index must be in the order: user_id (ascending), then timestamp (descending). This order matches the query pattern of find({user_id: X}).sort({timestamp: -1}). Without this specific index order, MongoDB will perform an in-memory sort which is slow and memory-intensive.",
+        "fix_type": "DB_Query",
+        "gold_patch_snippet": "# Index creation command:\ndb.activity_logs.create_index(\n    [('user_id', pymongo.ASCENDING), ('timestamp', pymongo.DESCENDING)],\n    name='user_activity_idx'\n)"
+    },
+    {
+        "source_id": "PERF-903",
+        "ticket_summary": "Analytics aggregation pipeline needs timestamp index for performance",
+        "project_module": "db_query_optimization",
+        "internal_context": "For time-range aggregation queries on activity_logs (such as getting trending users in last 24 hours), create a standalone index on timestamp field: {'timestamp': -1}. This supports the initial $match stage filtering by timestamp range. Combined with the compound index on (user_id, timestamp), you can efficiently handle both user-specific queries and time-range analytics.",
+        "fix_type": "DB_Query",
+        "gold_patch_snippet": "# Additional timestamp index for analytics:\ndb.activity_logs.create_index([('timestamp', -1)], name='timestamp_idx')\n\n# Enables fast aggregations:\npipeline = [{'$match': {'timestamp': {'$gte': cutoff}}}]"
+    },
+    {
+        "source_id": "PERF-904",
+        "ticket_summary": "Best practices for MongoDB query optimization on user activity data",
+        "project_module": "db_query_optimization",
+        "internal_context": "Standard optimization pattern for user activity logs: 1) Always create compound index (user_id, timestamp) for user-specific queries. 2) Add separate timestamp index for time-range analytics. 3) Use .explain() to verify index usage. 4) Set appropriate query limits to prevent large result sets. The compound index should always list the equality filter field (user_id) before the sort field (timestamp).",
+        "fix_type": "DB_Query",
+        "gold_patch_snippet": "# Recommended indexes:\ndb.activity_logs.create_index([('user_id', 1), ('timestamp', -1)])\ndb.activity_logs.create_index([('timestamp', -1)])\n\n# Verify with explain:\nresult = db.activity_logs.find({'user_id': uid}).sort('timestamp', -1).explain()"
+    },
+    {
+        "source_id": "PERF-905",
+        "ticket_summary": "Index verification and creation script for activity service",
+        "project_module": "db_query_optimization",
+        "internal_context": "To fix slow queries in activity_service.py, run the index creation script during deployment. Check existing indexes with db.activity_logs.list_indexes() before creating to avoid duplicates. The critical indexes are: 1) Compound (user_id, timestamp) for get_user_recent_activity, 2) Single timestamp for get_trending_users aggregation. Monitor query performance with MongoDB Atlas Performance Advisor.",
+        "fix_type": "DB_Query",
+        "gold_patch_snippet": "# Index setup script:\nexisting = [idx['name'] for idx in db.activity_logs.list_indexes()]\nif 'user_activity_idx' not in existing:\n    db.activity_logs.create_index([('user_id', 1), ('timestamp', -1)])"
+    },
+    {
+        "source_id": "AD-204",
+        "ticket_summary": "Architectural Decision: Internal API communication must use port 8081",
+        "project_module": "api_gateway",
+        "internal_context": "Company standard AD-204: All internal API communication must use port 8081 due to a legacy firewall rule that blocks port 8080 for internal traffic. Hardcoding port 8080 will result in connection timeout errors. This applies to all service-to-service calls including auth_service, user_service, and activity_service. Environment variable API_PORT should default to 8081, not 8080.",
+        "fix_type": "Config",
+        "gold_patch_snippet": "# Correct configuration:\nAPI_GATEWAY_PORT = int(os.getenv('API_PORT', 8081))  # Must be 8081\nAUTH_SERVICE_URL = f\"http://{API_GATEWAY_HOST}:8081/auth\""
+    },
+    {
+        "source_id": "INFRA-501",
+        "ticket_summary": "Internal service calls timing out due to firewall blocking port 8080",
+        "project_module": "api_gateway",
+        "internal_context": "Root cause analysis: Legacy firewall configuration from 2019 blocks all traffic on port 8080 for internal VPC communication. This is documented in AD-204. All internal services must be configured to use port 8081. External-facing services can use standard ports (80/443) but internal service mesh must use 8081. Update all config files, docker-compose files, and Kubernetes manifests to reflect this.",
+        "fix_type": "Config",
+        "gold_patch_snippet": "# In api_config.py or similar:\nINTERNAL_SERVICE_PORT = 8081  # Never use 8080 internally\n\n# In docker-compose.yml:\nports:\n  - \"8081:8081\"  # Internal services"
+    },
+    {
+        "source_id": "JIRA-505",
+        "ticket_summary": "Authentication service unreachable from user service due to wrong port",
+        "project_module": "api_gateway",
+        "internal_context": "Bug fix: The InternalAPIConfig class was using port 8080 as default, causing all service-to-service authentication calls to timeout. Changed default from 8080 to 8081 per AD-204. This fix must be applied to all internal service configuration classes. Always verify internal service URLs use port 8081 before deployment.",
+        "fix_type": "Config",
+        "gold_patch_snippet": "class InternalAPIConfig:\n    API_GATEWAY_PORT = int(os.getenv('API_PORT', 8081))  # Fixed\n    AUTH_SERVICE_URL = f\"http://{API_GATEWAY_HOST}:{API_GATEWAY_PORT}/auth\""
+    },
+    {
+        "source_id": "AD-204-WIKI",
+        "ticket_summary": "Internal networking standards and port allocation guide",
+        "project_module": "api_gateway",
+        "internal_context": "Network architecture documentation: Port 8080 is reserved for external-facing development servers only. Production internal services use port 8081 to avoid conflicts with the legacy firewall rule. When writing service configuration code, ALWAYS default to 8081 for internal communication. The environment variable API_PORT exists but should default to 8081, not 8080. This is enforced by infrastructure team per AD-204.",
+        "fix_type": "Config",
+        "gold_patch_snippet": "# Standard internal service config pattern:\nINTERNAL_PORT = int(os.getenv('INTERNAL_API_PORT', 8081))\nEXTERNAL_PORT = int(os.getenv('EXTERNAL_API_PORT', 8080))"
+    },
+    {
+        "source_id": "RUNBOOK-101",
+        "ticket_summary": "Troubleshooting guide for internal service connection failures",
+        "project_module": "api_gateway",
+        "internal_context": "Common issue: Services timing out when calling each other internally. First check: Verify all service URLs use port 8081, not 8080. The legacy firewall blocks 8080 for internal VPC traffic per AD-204. If you see connection timeout errors in logs, inspect the service URL configuration. The fix is always to change the port from 8080 to 8081 in the config file or environment variable default.",
+        "fix_type": "Config",
+        "gold_patch_snippet": "# Debug: Check service URLs\nprint(f\"Auth Service URL: {InternalAPIConfig.AUTH_SERVICE_URL}\")\n# Should output: http://localhost:8081/auth (not 8080)"
+    },
+    {
+        "source_id": "LOG-101",
+        "ticket_summary": "Logger default level should be DEBUG for development environments",
+        "project_module": "logging",
+        "internal_context": "Standard logging configuration: The setup_logger function should default to DEBUG level, not INFO. This is critical for development and troubleshooting as it captures detailed execution traces. The default parameter should be level='DEBUG' to ensure developers don't miss important debug messages. Production environments can override with environment variables.",
+        "fix_type": "Logic",
+        "gold_patch_snippet": "def setup_logger(name, level='DEBUG'):\n    logger = logging.getLogger(name)\n    log_level = getattr(logging, level.upper())\n    logger.setLevel(log_level)\n    return logger"
+    },
+    {
+        "source_id": "LOG-102",
+        "ticket_summary": "Missing debug logs due to incorrect logger default level",
+        "project_module": "logging",
+        "internal_context": "Bug fix: The logger utility was defaulting to INFO level, causing all DEBUG level messages to be silently dropped. This makes troubleshooting difficult. Changed default from 'INFO' to 'DEBUG' in the setup_logger function signature. This aligns with development best practices where verbose logging is preferred by default.",
+        "fix_type": "Logic",
+        "gold_patch_snippet": "# OLD: def setup_logger(name, level='INFO'):\n# NEW: def setup_logger(name, level='DEBUG'):\ndef setup_logger(name, level='DEBUG'):\n    logger = logging.getLogger(name)\n    log_level = getattr(logging, level.upper())\n    logger.setLevel(log_level)"
+    }
+]

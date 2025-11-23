@@ -1,0 +1,18 @@
+{
+  "mappings": {
+    "dynamic": true,
+    "fields": {
+      "embedding": {
+        "type": "knnVector",
+        "dimensions": 1536,
+        "similarity": "cosine"
+      },
+      "project_module": {
+        "type": "string"
+      },
+      "fix_type": {
+        "type": "string"
+      }
+    }
+  }
+}
