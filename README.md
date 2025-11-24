@@ -257,7 +257,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👥 Team
 
-Built with ❤️ for MUG Hackathon 2024
+Built with ❤️ for MUG Hackathon 2025
 
 ---
 
