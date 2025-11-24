@@ -1,0 +1,100 @@
+{
+  "project_name": "Hybrid Knowledge Fixer (H-KFX)",
+  "category_focus": ["Overall Best Agent", "MongoDB Category", "Tavily AI Category"],
+  "problem_statement": "Consulting firms suffer from high Mean Time to Resolution (MTTR) for bugs requiring both stale internal knowledge (past fixes) and up-to-date external knowledge (API changes). This agent automates the 90% research and code execution effort, requiring Human-in-the-Loop (HITL) sign-off for deployment.",
+  "architecture_overview": "A Model Context Protocol (MCP) Orchestrator manages the end-to-end bug fix workflow, integrating Jira, GitHub, a proprietary MongoDB RAG tool, and the Tavily Search MCP tool.",
+  "technical_stack": {
+    "orchestration_framework": {
+      "name": "LastMile AI mcp-agent",
+      "purpose": "Primary Orchestrator, Reflection Loop Manager, State Handler, and Tool Client."
+    },
+    "llm_model": {
+      "name": "GPT-4o / Claude 3.5 Sonnet",
+      "purpose": "Code Generation, Synthesis of Hybrid RAG Context, Reasoning for Reflection."
+    },
+    "internal_knowledge_tool": {
+      "name": "MongoDB Atlas Vector Search RAG",
+      "purpose": "Stores proprietary past ticket resolutions (organizational memory) as vector embeddings for semantic search.",
+      "libraries": ["pymongo", "custom MCP wrapper"]
+    },
+    "external_knowledge_tool": {
+      "name": "Tavily Search MCP Server",
+      "purpose": "Provides real-time, AI-optimized web search results for API deprecations and library updates.",
+      "libraries": ["tavily-python"]
+    },
+    "integration_tools": {
+      "jira": {
+        "libraries": ["jira", "Flask"],
+        "purpose": "Webhook listener for ticket creation and API client for status updates/comments."
+      },
+      "github": {
+        "libraries": ["PyGithub", "subprocess (for git)"],
+        "purpose": "Clones repo, creates branches, runs tests, and merges code."
+      },
+      "frontend_ui": {
+        "name": "Streamlit",
+        "purpose": "Displays Agent Trace Log and serves the Human-in-the-Loop Approval Dashboard."
+      }
+    }
+  },
+  "workflow_steps": [
+    {
+      "step_id": 1,
+      "name": "Trigger & Preparation",
+      "actor": "Client / MCP Orchestrator",
+      "details": "Client creates Jira ticket. **Jira Webhook** triggers a **Flask listener** which activates the **MCP Orchestrator**. Orchestrator changes Jira status to **IN PROGRESS**, pulls the code, creates a new Git branch, and runs the initial test suite to confirm failure (F→P test Fails)."
+    },
+    {
+      "step_id": 2,
+      "name": "Hybrid Knowledge Retrieval (RAG)",
+      "actor": "MCP Orchestrator / RAG Tools",
+      "details": "Orchestrator initiates parallel queries: 1. Calls **MongoDB RAG** (Vector Search) for related internal fix history. 2. Calls **Tavily Search MCP Server** for up-to-date external facts (e.g., library release notes). Contexts are combined for the Coder LLM."
+    },
+    {
+      "step_id": 3,
+      "name": "Code Generation & Reflection Loop",
+      "actor": "Coder/Evaluator Tool",
+      "details": "Coder LLM generates patch. **Code Execution Tool** runs **F→P** (fix validation) and **P→P** (regression) tests. **IF FAIL:** The failure traceback is fed back to the Coder LLM for a maximum of 3 retries (Reflection)."
+    },
+    {
+      "step_id": 4,
+      "name": "Human-in-the-Loop (HITL) Hand-off",
+      "actor": "MCP Orchestrator / Developer",
+      "details": "**IF SUCCESS:** Orchestrator updates Jira status to **IN REVIEW**. Posts a comment with the summary and a URL to the **Approval UI**. The full audit trail is logged in MongoDB's Audit Collection."
+    },
+    {
+      "step_id": 5,
+      "name": "Deployment & Finalization",
+      "actor": "Developer / MCP Orchestrator",
+      "details": "Developer clicks **APPROVE** in the UI. Orchestrator executes `git merge` via **GitHub Tool**, updates Jira status to **DONE**, and logs the time saved."
+    }
+  ],
+  "demonstration_ui_plan": {
+    "design_tool": "Streamlit (or Gradio)",
+    "key_panels": [
+      {
+        "name": "Agent Trace Log (Transparency)",
+        "content": "Real-time, color-coded feed showing every tool call, RAG retrieval snippet, and LLM reasoning step. *Crucial for winning the 'trust' factor.*"
+      },
+      {
+        "name": "Code Diff & Test Report",
+        "content": "Side-by-side view of the proposed patch and a clear Pass/Fail table for F→P and P→P tests (all must be green)."
+      },
+      {
+        "name": "Approval Zone",
+        "content": "Large, unmistakable [🟢 APPROVE & MERGE] button and a prominent display of the estimated time saved (e.g., '3.5 Hours Saved')."
+      }
+    ]
+  },
+  "sponsor_alignment_pitch": {
+    "mongodb_win": "Serves as the **Proprietary Knowledge Base**, providing the unique, competitive advantage (past, high-value fixes) that general LLMs lack.",
+    "tavily_win": "Provides the **Real-time Factual Layer** necessary for reliability, ensuring the generated fix addresses the absolute latest API changes and external library updates.",
+    "overall_win": "The **MCP Orchestrator** is the backbone, demonstrating **enterprise reliability** and a scalable, production-ready **Human-in-the-Loop** system for automation."
+  },
+  "estimated_cost": {
+    "mongodb_atlas": "$0 (M0 Free Tier)",
+    "tavily_api": "$0 (Researcher Plan / Free Credits)",
+    "llm_api": "<$5 (Minimal token usage for the demo run)",
+    "total_estimated_poc_cost": "Near Zero USD"
+  }
+}

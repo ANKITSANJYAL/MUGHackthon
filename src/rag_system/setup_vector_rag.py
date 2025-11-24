@@ -246,6 +246,7 @@ def main():
         seed_file = os.path.join(
             os.path.dirname(__file__), 
             '..', 
+            '..', 
             'rag_data', 
             'seed_documents.json'
         )

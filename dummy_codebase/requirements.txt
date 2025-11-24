@@ -1,0 +1,5 @@
+# Test configuration
+pytest
+pytest-cov
+pytest-mock
+pymongo

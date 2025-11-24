@@ -104,6 +104,14 @@
         "gold_patch_snippet": "class InternalAPIConfig:\n    API_GATEWAY_PORT = int(os.getenv('API_PORT', 8081))  # Fixed\n    AUTH_SERVICE_URL = f\"http://{API_GATEWAY_HOST}:{API_GATEWAY_PORT}/auth\""
     },
     {
+        "source_id": "JIRA-506",
+        "ticket_summary": "Port change in config class requires updating all dependent URL variables",
+        "project_module": "api_gateway",
+        "internal_context": "CRITICAL BUG PATTERN: When changing API_GATEWAY_PORT in a config class, you MUST also update all URL class variables that use it (AUTH_SERVICE_URL, USER_SERVICE_URL, etc.). Python evaluates class variables at class definition time, NOT at runtime. If you only change the port value, the URLs still have the old port because they were interpolated before the change. SOLUTION: Show the COMPLETE FILE with ALL classes, methods, AND standalone functions. The file config/api_config.py contains: (1) InternalAPIConfig class with get_service_url() method, AND (2) call_internal_service() standalone function. You MUST include BOTH in your output or tests will fail with ImportError. Copy the get_service_url() method and call_internal_service() function EXACTLY - do NOT modify their logic. Only change: (1) API_GATEWAY_PORT value, and (2) the port in URL strings. Everything else stays identical.",
+        "fix_type": "Config",
+        "gold_patch_snippet": "# COMPLETE FILE - Include ALL code below:\nimport os\n\nclass InternalAPIConfig:\n    API_GATEWAY_HOST = os.getenv('API_HOST', 'localhost')\n    API_GATEWAY_PORT = int(os.getenv('API_PORT', 8081))  # FIXED: Changed from 8080\n    \n    # MUST update all URLs that use the port!\n    AUTH_SERVICE_URL = f\"http://{API_GATEWAY_HOST}:{API_GATEWAY_PORT}/auth\"  # Now has 8081\n    USER_SERVICE_URL = f\"http://{API_GATEWAY_HOST}:{API_GATEWAY_PORT}/users\"  # Now has 8081\n    ACTIVITY_SERVICE_URL = f\"http://{API_GATEWAY_HOST}:{API_GATEWAY_PORT}/activity\"  # Now has 8081\n    \n    @classmethod\n    def get_service_url(cls, service_name: str) -> str:\n        # COPY THIS METHOD EXACTLY - DO NOT MODIFY!\n        service_map = {\n            'auth': cls.AUTH_SERVICE_URL,\n            'users': cls.USER_SERVICE_URL,\n            'activity': cls.ACTIVITY_SERVICE_URL\n        }\n        return service_map.get(service_name, '')\n\n# CRITICAL: Must include this standalone function too!\ndef call_internal_service(service_name: str, endpoint: str, method: str = 'GET', data: dict = None):\n    # COPY THIS FUNCTION EXACTLY - DO NOT MODIFY!\n    import requests\n    base_url = InternalAPIConfig.get_service_url(service_name)\n    full_url = f\"{base_url}{endpoint}\"\n    response = requests.request(method, full_url, json=data, timeout=5)\n    return response.json()"
+    },
+    {
         "source_id": "AD-204-WIKI",
         "ticket_summary": "Internal networking standards and port allocation guide",
         "project_module": "api_gateway",
