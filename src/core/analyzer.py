@@ -142,32 +142,64 @@ Return JSON:
 {{"issue_category":"build|runtime|import|syntax|dependency|test|other","severity":"critical|high|medium|low","root_cause_hypothesis":"Your hypothesis","diagnostic_commands":[{{"command":"npm install","description":"Install dependencies"}}],"recommendations":["rec1","rec2"]}}"""
 
         try:
+            # Use analysis model (can be cheaper for this task)
+            analysis_model = os.getenv("ANALYSIS_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+            
             response = self.client.chat.completions.create(
-                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                messages=[{"role": "user", "content": prompt}],
+                model=analysis_model,
+                messages=[
+                    {"role": "system", "content": "You are a software diagnostics expert. Always respond with valid JSON only."},
+                    {"role": "user", "content": prompt}
+                ],
                 max_tokens=800,
                 temperature=0.3,
+                response_format={"type": "json_object"}  # Force JSON output
             )
             
             response_text = response.choices[0].message.content.strip()
             
+            # Try to extract JSON if wrapped in markdown
             if "```json" in response_text:
                 response_text = response_text.split("```json")[1].split("```")[0].strip()
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
             
             if not response_text:
-                return {"error": "Empty response from AI"}
+                logger.error("Empty response from AI")
+                return {
+                    "error": "Empty response from AI",
+                    "issue_category": "unknown",
+                    "severity": "medium",
+                    "root_cause_hypothesis": "Unable to analyze",
+                    "diagnostic_commands": [],
+                    "recommendations": []
+                }
             
             result = json.loads(response_text)
             return result
             
         except json.JSONDecodeError as je:
             logger.error(f"JSON parse error: {str(je)}")
-            return {"error": f"Invalid JSON: {str(je)}"}
+            logger.error(f"Response was: {response_text[:500]}")
+            # Return a valid fallback structure
+            return {
+                "error": f"Invalid JSON: {str(je)}",
+                "issue_category": "unknown",
+                "severity": "medium", 
+                "root_cause_hypothesis": "JSON parsing failed",
+                "diagnostic_commands": [{"command": "pytest -v", "description": "Run tests"}],
+                "recommendations": ["Manual investigation required"]
+            }
         except Exception as e:
             logger.error(f"AI error: {str(e)}")
-            return {"error": str(e)}
+            return {
+                "error": str(e),
+                "issue_category": "unknown",
+                "severity": "medium",
+                "root_cause_hypothesis": str(e),
+                "diagnostic_commands": [],
+                "recommendations": []
+            }
 
     def _run_diagnostic_commands(self, commands: List[Dict[str, str]]) -> List[Dict[str, Any]]:
         """Run diagnostic commands suggested by AI."""

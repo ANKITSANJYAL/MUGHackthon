@@ -1,0 +1,347 @@
+[
+    {
+        "ticket_id": "BUG-101",
+        "title": "Authentication timeout on API gateway",
+        "description": "Users experiencing 401 errors after 15 minutes of inactivity. Session tokens expiring prematurely.",
+        "severity": "high",
+        "component": "authentication",
+        "root_cause": "JWT token expiration set to 900 seconds instead of 3600 seconds in config",
+        "solution": "Updated JWT_EXPIRATION environment variable from 900 to 3600 in config/auth.py",
+        "code_change": {
+            "file": "config/auth.py",
+            "before": "JWT_EXPIRATION = 900  # 15 minutes",
+            "after": "JWT_EXPIRATION = 3600  # 1 hour"
+        },
+        "tags": ["authentication", "jwt", "timeout", "configuration"],
+        "resolution_time_hours": 2.5,
+        "affected_endpoints": ["/api/v1/auth/refresh", "/api/v1/protected/*"]
+    },
+    {
+        "ticket_id": "BUG-102",
+        "title": "Database connection pool exhausted during peak hours",
+        "description": "Application crashes with 'Too many connections' error during high traffic periods.",
+        "severity": "critical",
+        "component": "database",
+        "root_cause": "Connection pool size set to default 10, insufficient for production load",
+        "solution": "Increased max_pool_size to 50 and added connection timeout handling",
+        "code_change": {
+            "file": "database/connection.py",
+            "before": "client = MongoClient(uri, maxPoolSize=10)",
+            "after": "client = MongoClient(uri, maxPoolSize=50, serverSelectionTimeoutMS=5000)"
+        },
+        "tags": ["database", "mongodb", "connection-pool", "performance"],
+        "resolution_time_hours": 4.0,
+        "affected_endpoints": ["all database operations"]
+    },
+    {
+        "ticket_id": "BUG-103",
+        "title": "Memory leak in background task processor",
+        "description": "Worker process memory grows continuously until OOM crash after 6 hours of runtime.",
+        "severity": "critical",
+        "component": "background-tasks",
+        "root_cause": "Task results stored in memory without cleanup, list growing unbounded",
+        "solution": "Implemented result cleanup after processing and added max queue size limit",
+        "code_change": {
+            "file": "workers/task_processor.py",
+            "before": "self.results.append(task_result)",
+            "after": "self.results.append(task_result)\nif len(self.results) > 1000:\n    self.results = self.results[-500:]"
+        },
+        "tags": ["memory-leak", "background-tasks", "worker", "optimization"],
+        "resolution_time_hours": 6.0,
+        "affected_endpoints": ["/api/v1/tasks/process"]
+    },
+    {
+        "ticket_id": "BUG-104",
+        "title": "CORS error blocking frontend requests from subdomain",
+        "description": "Browser console shows 'Access-Control-Allow-Origin' error when calling API from app.subdomain.com",
+        "severity": "medium",
+        "component": "api",
+        "root_cause": "CORS middleware only allowing exact domain match, not wildcard subdomains",
+        "solution": "Updated CORS configuration to allow all subdomains of main domain",
+        "code_change": {
+            "file": "middleware/cors.py",
+            "before": "ALLOWED_ORIGINS = ['https://example.com']",
+            "after": "ALLOWED_ORIGINS = ['https://example.com', 'https://*.example.com']\napp.add_middleware(CORSMiddleware, allow_origin_regex=r'https://.*\\.example\\.com')"
+        },
+        "tags": ["cors", "frontend", "middleware", "security"],
+        "resolution_time_hours": 1.5,
+        "affected_endpoints": ["/api/v1/*"]
+    },
+    {
+        "ticket_id": "BUG-105",
+        "title": "Null pointer exception in user profile update",
+        "description": "500 error when updating user profile without providing optional 'bio' field.",
+        "severity": "medium",
+        "component": "user-service",
+        "root_cause": "Missing null check for optional fields before accessing .strip() method",
+        "solution": "Added null safety checks for all optional profile fields",
+        "code_change": {
+            "file": "services/user_service.py",
+            "before": "bio = data['bio'].strip()",
+            "after": "bio = data.get('bio', '').strip() if data.get('bio') else None"
+        },
+        "tags": ["null-pointer", "user-service", "validation", "defensive-programming"],
+        "resolution_time_hours": 1.0,
+        "affected_endpoints": ["/api/v1/users/{id}/profile"]
+    },
+    {
+        "ticket_id": "BUG-106",
+        "title": "Rate limiter blocking legitimate user requests",
+        "description": "Users behind corporate NAT getting 429 Too Many Requests despite individual compliance.",
+        "severity": "high",
+        "component": "rate-limiting",
+        "root_cause": "Rate limit applied per IP address, not per authenticated user",
+        "solution": "Changed rate limiting strategy to use user_id for authenticated requests",
+        "code_change": {
+            "file": "middleware/rate_limit.py",
+            "before": "limiter = Limiter(key_func=get_remote_address)",
+            "after": "def get_limit_key():\n    if request.headers.get('Authorization'):\n        return extract_user_id(request)\n    return get_remote_address()\n\nlimiter = Limiter(key_func=get_limit_key)"
+        },
+        "tags": ["rate-limiting", "authentication", "middleware", "user-experience"],
+        "resolution_time_hours": 3.0,
+        "affected_endpoints": ["/api/v1/*"]
+    },
+    {
+        "ticket_id": "BUG-107",
+        "title": "JSON serialization error for datetime objects",
+        "description": "API returning 'Object of type datetime is not JSON serializable' error.",
+        "severity": "high",
+        "component": "api",
+        "root_cause": "Datetime objects from database not converted to ISO format strings before JSON response",
+        "solution": "Added custom JSON encoder for datetime serialization",
+        "code_change": {
+            "file": "utils/json_encoder.py",
+            "before": "return jsonify(data)",
+            "after": "from datetime import datetime\nfrom flask.json import JSONEncoder\n\nclass CustomJSONEncoder(JSONEncoder):\n    def default(self, obj):\n        if isinstance(obj, datetime):\n            return obj.isoformat()\n        return super().default(obj)\n\napp.json_encoder = CustomJSONEncoder\nreturn jsonify(data)"
+        },
+        "tags": ["json", "serialization", "datetime", "api"],
+        "resolution_time_hours": 1.5,
+        "affected_endpoints": ["/api/v1/users/*", "/api/v1/reports/*"]
+    },
+    {
+        "ticket_id": "BUG-108",
+        "title": "Webhook delivery failing with SSL verification error",
+        "description": "Outgoing webhooks to partner API failing with 'SSL: CERTIFICATE_VERIFY_FAILED'.",
+        "severity": "medium",
+        "component": "webhooks",
+        "root_cause": "Partner using self-signed certificate, requests library rejecting by default",
+        "solution": "Added certificate bundle configuration and fallback for trusted self-signed certs",
+        "code_change": {
+            "file": "services/webhook_sender.py",
+            "before": "response = requests.post(webhook_url, json=payload)",
+            "after": "import certifi\nresponse = requests.post(\n    webhook_url,\n    json=payload,\n    verify=certifi.where(),\n    timeout=10\n)"
+        },
+        "tags": ["webhooks", "ssl", "certificate", "integration"],
+        "resolution_time_hours": 2.0,
+        "affected_endpoints": ["/api/v1/webhooks/send"]
+    },
+    {
+        "ticket_id": "BUG-109",
+        "title": "Race condition in order processing",
+        "description": "Duplicate orders created when user double-clicks submit button.",
+        "severity": "critical",
+        "component": "order-service",
+        "root_cause": "No idempotency key validation, allowing duplicate submissions",
+        "solution": "Implemented idempotency key checking using Redis cache with 5-minute TTL",
+        "code_change": {
+            "file": "services/order_service.py",
+            "before": "order = create_order(user_id, items)",
+            "after": "idempotency_key = request.headers.get('Idempotency-Key')\nif redis_client.exists(f'order:{idempotency_key}'):\n    return redis_client.get(f'order:{idempotency_key}')\n\norder = create_order(user_id, items)\nredis_client.setex(f'order:{idempotency_key}', 300, order.id)"
+        },
+        "tags": ["race-condition", "idempotency", "redis", "order-processing"],
+        "resolution_time_hours": 5.0,
+        "affected_endpoints": ["/api/v1/orders/create"]
+    },
+    {
+        "ticket_id": "BUG-110",
+        "title": "Email notifications not sending in production",
+        "description": "Users not receiving password reset emails, no errors in logs.",
+        "severity": "high",
+        "component": "email-service",
+        "root_cause": "SMTP port 25 blocked by cloud provider, need to use port 587 with TLS",
+        "solution": "Updated SMTP configuration to use port 587 with STARTTLS",
+        "code_change": {
+            "file": "services/email_service.py",
+            "before": "smtp = smtplib.SMTP(smtp_host, 25)",
+            "after": "smtp = smtplib.SMTP(smtp_host, 587)\nsmtp.starttls()\nsmtp.login(smtp_user, smtp_password)"
+        },
+        "tags": ["email", "smtp", "notification", "configuration"],
+        "resolution_time_hours": 2.5,
+        "affected_endpoints": ["/api/v1/auth/reset-password"]
+    },
+    {
+        "ticket_id": "BUG-111",
+        "title": "Pagination returning duplicate results",
+        "description": "Users seeing the same items on multiple pages when scrolling through list.",
+        "severity": "medium",
+        "component": "api",
+        "root_cause": "Using OFFSET pagination with ORDER BY non-unique field (created_at), causing unstable ordering",
+        "solution": "Added secondary sort by unique ID field for stable pagination",
+        "code_change": {
+            "file": "api/list_endpoints.py",
+            "before": "query = query.order_by('-created_at').limit(page_size).offset(offset)",
+            "after": "query = query.order_by('-created_at', '-id').limit(page_size).offset(offset)"
+        },
+        "tags": ["pagination", "database", "query", "sorting"],
+        "resolution_time_hours": 1.5,
+        "affected_endpoints": ["/api/v1/items/list", "/api/v1/products/list"]
+    },
+    {
+        "ticket_id": "BUG-112",
+        "title": "File upload failing for files > 1MB",
+        "description": "Large file uploads returning 413 Request Entity Too Large error.",
+        "severity": "medium",
+        "component": "file-upload",
+        "root_cause": "Nginx default client_max_body_size is 1MB, need to increase for production",
+        "solution": "Updated Nginx configuration and Flask MAX_CONTENT_LENGTH",
+        "code_change": {
+            "file": "config/nginx.conf",
+            "before": "# client_max_body_size not set",
+            "after": "client_max_body_size 10M;"
+        },
+        "additional_change": {
+            "file": "config/app.py",
+            "before": "app = Flask(__name__)",
+            "after": "app = Flask(__name__)\napp.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB"
+        },
+        "tags": ["file-upload", "nginx", "configuration", "size-limit"],
+        "resolution_time_hours": 1.0,
+        "affected_endpoints": ["/api/v1/upload"]
+    },
+    {
+        "ticket_id": "BUG-113",
+        "title": "Cache returning stale data after updates",
+        "description": "Users seeing old profile information even after successful update.",
+        "severity": "medium",
+        "component": "cache",
+        "root_cause": "Cache invalidation not triggered on UPDATE operations, only on DELETE",
+        "solution": "Added cache invalidation for all write operations (CREATE, UPDATE, DELETE)",
+        "code_change": {
+            "file": "services/user_service.py",
+            "before": "def update_user(user_id, data):\n    db.users.update_one({'_id': user_id}, {'$set': data})\n    return get_user(user_id)",
+            "after": "def update_user(user_id, data):\n    db.users.update_one({'_id': user_id}, {'$set': data})\n    cache.delete(f'user:{user_id}')\n    return get_user(user_id)"
+        },
+        "tags": ["cache", "invalidation", "redis", "data-consistency"],
+        "resolution_time_hours": 2.0,
+        "affected_endpoints": ["/api/v1/users/{id}"]
+    },
+    {
+        "ticket_id": "BUG-114",
+        "title": "Search returning no results for special characters",
+        "description": "Search queries with apostrophes or quotes returning empty results.",
+        "severity": "low",
+        "component": "search",
+        "root_cause": "Special characters not escaped in MongoDB regex query, breaking pattern matching",
+        "solution": "Added regex escape function for user input before search query",
+        "code_change": {
+            "file": "services/search_service.py",
+            "before": "query = {'name': {'$regex': search_term, '$options': 'i'}}",
+            "after": "import re\nsafe_term = re.escape(search_term)\nquery = {'name': {'$regex': safe_term, '$options': 'i'}}"
+        },
+        "tags": ["search", "regex", "input-validation", "special-characters"],
+        "resolution_time_hours": 1.0,
+        "affected_endpoints": ["/api/v1/search"]
+    },
+    {
+        "ticket_id": "BUG-115",
+        "title": "Timezone mismatch in scheduled reports",
+        "description": "Daily reports generating at wrong time, showing data from wrong day.",
+        "severity": "medium",
+        "component": "reporting",
+        "root_cause": "Server using UTC but report logic assuming local timezone without conversion",
+        "solution": "Added explicit timezone handling using pytz for report date calculations",
+        "code_change": {
+            "file": "tasks/report_generator.py",
+            "before": "from datetime import datetime\ntoday = datetime.now().date()",
+            "after": "from datetime import datetime\nimport pytz\n\nuser_tz = pytz.timezone(user.timezone or 'UTC')\ntoday = datetime.now(user_tz).date()"
+        },
+        "tags": ["timezone", "datetime", "reporting", "localization"],
+        "resolution_time_hours": 3.0,
+        "affected_endpoints": ["/api/v1/reports/daily"]
+    },
+    {
+        "ticket_id": "BUG-116",
+        "title": "API key validation failing intermittently",
+        "description": "Valid API keys randomly rejected with 401 Unauthorized error.",
+        "severity": "high",
+        "component": "authentication",
+        "root_cause": "API key lookup using case-sensitive comparison, keys stored in mixed case",
+        "solution": "Normalized API keys to lowercase for storage and comparison",
+        "code_change": {
+            "file": "middleware/api_auth.py",
+            "before": "api_key = request.headers.get('X-API-Key')\nif db.api_keys.find_one({'key': api_key}):",
+            "after": "api_key = request.headers.get('X-API-Key', '').lower()\nif db.api_keys.find_one({'key': api_key}):"
+        },
+        "tags": ["api-key", "authentication", "case-sensitivity", "validation"],
+        "resolution_time_hours": 2.0,
+        "affected_endpoints": ["/api/v1/*"]
+    },
+    {
+        "ticket_id": "BUG-117",
+        "title": "Slow query causing timeout on analytics dashboard",
+        "description": "Analytics page loading for 30+ seconds then timing out.",
+        "severity": "high",
+        "component": "analytics",
+        "root_cause": "Missing database index on frequently queried timestamp field",
+        "solution": "Added compound index on (user_id, timestamp) for analytics queries",
+        "code_change": {
+            "file": "database/indexes.py",
+            "before": "# No index on analytics collection",
+            "after": "db.analytics.create_index([('user_id', 1), ('timestamp', -1)])\ndb.analytics.create_index([('timestamp', -1)])  # For date range queries"
+        },
+        "tags": ["performance", "database", "indexing", "query-optimization"],
+        "resolution_time_hours": 2.5,
+        "affected_endpoints": ["/api/v1/analytics/dashboard"]
+    },
+    {
+        "ticket_id": "BUG-118",
+        "title": "Password reset token not expiring",
+        "description": "Security audit found password reset links remain valid indefinitely.",
+        "severity": "critical",
+        "component": "security",
+        "root_cause": "Token expiration check missing in password reset validation logic",
+        "solution": "Added token expiration validation using timestamp comparison",
+        "code_change": {
+            "file": "services/auth_service.py",
+            "before": "def validate_reset_token(token):\n    return db.reset_tokens.find_one({'token': token})",
+            "after": "from datetime import datetime, timedelta\n\ndef validate_reset_token(token):\n    token_doc = db.reset_tokens.find_one({'token': token})\n    if not token_doc:\n        return None\n    if datetime.utcnow() > token_doc['expires_at']:\n        return None\n    return token_doc"
+        },
+        "tags": ["security", "authentication", "token", "expiration"],
+        "resolution_time_hours": 2.0,
+        "affected_endpoints": ["/api/v1/auth/reset-password/confirm"]
+    },
+    {
+        "ticket_id": "BUG-119",
+        "title": "WebSocket connection dropping after 60 seconds",
+        "description": "Real-time notifications stop working after 1 minute of connection.",
+        "severity": "medium",
+        "component": "websocket",
+        "root_cause": "Load balancer idle timeout set to 60 seconds, no keepalive ping implemented",
+        "solution": "Implemented WebSocket ping/pong mechanism every 30 seconds",
+        "code_change": {
+            "file": "websocket/connection.py",
+            "before": "socketio = SocketIO(app)",
+            "after": "socketio = SocketIO(app, ping_interval=30, ping_timeout=10)\n\n@socketio.on('connect')\ndef handle_connect():\n    emit('connected', {'data': 'Connected'})"
+        },
+        "tags": ["websocket", "keepalive", "connection", "real-time"],
+        "resolution_time_hours": 3.0,
+        "affected_endpoints": ["/socket.io/*"]
+    },
+    {
+        "ticket_id": "BUG-120",
+        "title": "Data export generating corrupted CSV files",
+        "description": "Downloaded CSV files have garbled characters for non-ASCII text.",
+        "severity": "medium",
+        "component": "export",
+        "root_cause": "CSV export not specifying UTF-8 encoding, defaulting to ASCII",
+        "solution": "Added explicit UTF-8 encoding with BOM for Excel compatibility",
+        "code_change": {
+            "file": "services/export_service.py",
+            "before": "with open(filename, 'w', newline='') as f:\n    writer = csv.writer(f)",
+            "after": "with open(filename, 'w', newline='', encoding='utf-8-sig') as f:\n    writer = csv.writer(f)"
+        },
+        "tags": ["csv", "export", "encoding", "utf8"],
+        "resolution_time_hours": 1.5,
+        "affected_endpoints": ["/api/v1/export/csv"]
+    }
+]
